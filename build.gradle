@@ -29,4 +29,7 @@ dependencies {
 	testCompile('org.springframework.boot:spring-boot-starter-test')
 	compile("io.springfox:springfox-swagger2:2.2.2")
 	compile("io.springfox:springfox-swagger-ui:2.2.2")
+	compile("org.springframework.boot:spring-boot-starter-activemq")
+	compile("org.apache.activemq:activemq-broker")
+	compile('com.google.guava:guava:25.0-jre')
 }
