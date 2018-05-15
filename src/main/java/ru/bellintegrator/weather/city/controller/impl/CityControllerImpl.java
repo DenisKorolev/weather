@@ -27,14 +27,23 @@ public class CityControllerImpl implements CityController {
      * {@inheritDoc}
      */
     @Override
-    @ApiOperation(value = "Loads City weather by name from Yahoo", httpMethod = "GET")
-    @RequestMapping(value = "/{cityName}", method = {GET})
+    @ApiOperation(value = "Loads City weather forecast by name from Yahoo to DB", httpMethod = "GET")
+    @RequestMapping(value = "/load/{cityName}", method = {GET})
     public ResultView loadByName(@PathVariable(value = "cityName") String cityName) {
 
         service.loadByName(cityName);
 
-
-
         return new ResultView("success");
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @ApiOperation(value = "Returns City weather forecast by name from DB", httpMethod = "GET")
+    @RequestMapping(value = "/return/{cityName}", method = {GET})
+    public CityView returnByName(@PathVariable(value = "cityName") String cityName) {
+
+        return service.returnByName(cityName);
     }
 }
