@@ -1,20 +1,23 @@
 package ru.bellintegrator.weather.city.view;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Query {
 
-    private int count;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer count;
     private String created;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String lang;
     private Results results;
 
-    public int getCount() {
+    public Integer getCount() {
         return count;
     }
 
-    public void setCount(int count) {
+    public void setCount(Integer count) {
         this.count = count;
     }
 

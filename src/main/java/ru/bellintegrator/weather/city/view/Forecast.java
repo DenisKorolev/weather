@@ -1,10 +1,12 @@
 package ru.bellintegrator.weather.city.view;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Forecast {
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String code;
     private String date;
     private String day;
