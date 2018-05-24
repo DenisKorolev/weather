@@ -2,6 +2,7 @@ package ru.bellintegrator.weather.publisher.forecast.service.impl;
 
 import com.google.common.base.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -18,13 +19,16 @@ public class ForecastServiceImpl implements ForecastService {
     @Autowired
     private JmsTemplate jmsTemplate;
 
+    @Value("${com.yahoo.api.url}")
+    private String baseURL;
+
     private CityView queryToYahooApi(String cityName) {
 
         if (Strings.isNullOrEmpty(cityName)) {
             throw new RequiredFieldIsNullException(cityName);
         }
 
-        String url = "https://query.yahooapis.com/v1/public/yql?q=select * from weather.forecast where woeid in " +
+        String url = baseURL + "?q=select * from weather.forecast where woeid in " +
                 "(select woeid from geo.places(1) where text=\"" + cityName + "\") and u=\"c\"" +
                 "&format=json&env=store://datatables.org/alltableswithkeys";
         System.out.println(url);

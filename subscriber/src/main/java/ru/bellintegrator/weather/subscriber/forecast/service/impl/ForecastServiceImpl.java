@@ -2,7 +2,7 @@ package ru.bellintegrator.weather.subscriber.forecast.service.impl;
 
 import com.google.common.base.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jms.core.JmsTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -27,13 +27,14 @@ import java.util.List;
 public class ForecastServiceImpl implements ForecastService {
 
     @Autowired
-    private JmsTemplate jmsTemplate;
-    @Autowired
     private LocationDAO locationDAO;
     @Autowired
     private LastForecastDAO lastForecastDAO;
     @Autowired
     private ForecastDAO forecastDAO;
+
+    @Value("${com.yahoo.api.url}")
+    private String baseURL;
 
     private CityView queryToYahooApi(String cityName) {
 
@@ -41,7 +42,7 @@ public class ForecastServiceImpl implements ForecastService {
             throw new RequiredFieldIsNullException(cityName);
         }
 
-        String url = "https://query.yahooapis.com/v1/public/yql?q=select * from weather.forecast where woeid in " +
+        String url = baseURL + "?q=select * from weather.forecast where woeid in " +
                 "(select woeid from geo.places(1) where text=\"" + cityName + "\") and u=\"c\"" +
                 "&format=json&env=store://datatables.org/alltableswithkeys";
         System.out.println(url);
@@ -95,12 +96,16 @@ public class ForecastServiceImpl implements ForecastService {
     @Transactional
     public CityView returnByName(String cityName) {
 
+        if (Strings.isNullOrEmpty(cityName)) {
+            throw new RequiredFieldIsNullException(cityName);
+        }
+
         CityView result = this.queryToYahooApi(cityName);
 
         LocationEntity locationRes = this.loadLocationFromDB(result);
 
         if (locationRes == null)
-            new CityWasNotFoundException(cityName, "DB");
+            throw new CityWasNotFoundException(cityName, "DB");
 
         //Loads LastForecast from DB by location_id
         System.err.println("Last ForecastEntity search has started");
@@ -115,7 +120,7 @@ public class ForecastServiceImpl implements ForecastService {
         if (lastForecastRes != null) {
             //LastForecast created
             Query query = new Query();
-            query.setCreated(lastForecastRes.getCreated().toString());
+            query.setCreated(String.valueOf(lastForecastRes.getCreated()));
             view.setQuery(query);
 
             Results results = new Results();
@@ -139,19 +144,19 @@ public class ForecastServiceImpl implements ForecastService {
                 //Wind
                 Wind wind = new Wind();
 
-                wind.setChill(forecast.getChillWind().toString());
-                wind.setDirection(forecast.getDirectionWind().toString());
-                wind.setSpeed(forecast.getSpeedWind().toString());
+                wind.setChill(String.valueOf(forecast.getChillWind()));
+                wind.setDirection(String.valueOf(forecast.getDirectionWind()));
+                wind.setSpeed(String.valueOf(forecast.getSpeedWind()));
 
                 channel.setWind(wind);
 
                 //Atmosphere
                 Atmosphere atmosphere = new Atmosphere();
 
-                atmosphere.setHumidity(forecast.getHumidityAtmosphere().toString());
-                atmosphere.setPressure(forecast.getPressureAtmosphere().toString());
-                atmosphere.setRising(forecast.getRisingAtmosphere().toString());
-                atmosphere.setVisibility(forecast.getVisibilityAtmosphere().toString());
+                atmosphere.setHumidity(String.valueOf(forecast.getHumidityAtmosphere()));
+                atmosphere.setPressure(String.valueOf(forecast.getPressureAtmosphere()));
+                atmosphere.setRising(String.valueOf(forecast.getRisingAtmosphere()));
+                atmosphere.setVisibility(String.valueOf(forecast.getVisibilityAtmosphere()));
 
                 channel.setAtmosphere(atmosphere);
 
@@ -167,7 +172,7 @@ public class ForecastServiceImpl implements ForecastService {
                 Condition condition = new Condition();
 
                 condition.setDate(forecast.getDateCondition());
-                condition.setTemp(forecast.getTempCondition().toString());
+                condition.setTemp(String.valueOf(forecast.getTempCondition()));
                 condition.setText(forecast.getTextCondition());
 
                 Item item = new Item();
@@ -180,12 +185,13 @@ public class ForecastServiceImpl implements ForecastService {
 
                 forecastView.setDate(forecast.getDateCondition());
                 forecastView.setDay(forecast.getDayForecast());
-                forecastView.setHigh(forecast.getHighForecast().toString());
-                forecastView.setLow(forecast.getLowForecast().toString());
+                forecastView.setHigh(String.valueOf(forecast.getHighForecast()));
+                forecastView.setLow(String.valueOf(forecast.getLowForecast()));
                 forecastView.setText(forecast.getTextForecast());
 
                 channel.getItem().setForecasts(forecasts);
             }
+
 
             //Location
             LocationEntity locationEntity = lastForecastRes.getLocation();
@@ -200,6 +206,7 @@ public class ForecastServiceImpl implements ForecastService {
             }
 
         }
+        else throw new CityWasNotFoundException(cityName, "DB");
 
 
         return view;
@@ -211,6 +218,13 @@ public class ForecastServiceImpl implements ForecastService {
     @Override
     @Transactional
     public void saveForecast(CityView view) {
+
+        //Null check
+        if ((view == null) || (view.getQuery() == null) || (view.getQuery().getResults() == null)
+                || (view.getQuery().getResults().getChannel() == null)
+                || (view.getQuery().getResults().getChannel().getLocation() == null)) {
+            throw new RequiredFieldIsNullException("CityView");
+        }
 
         //Checks if location exists in DB
         Location location = view.getQuery().getResults().getChannel().getLocation();
@@ -253,81 +267,98 @@ public class ForecastServiceImpl implements ForecastService {
         Channel channel = view.getQuery().getResults().getChannel();
 
         //Units
-        forecast.setDistanceUnits(channel.getUnits().getDistance());
-        forecast.setPressureUnits(channel.getUnits().getPressure());
-        forecast.setSpeedUnits(channel.getUnits().getSpeed());
-        forecast.setTemperatureUnits(channel.getUnits().getTemperature());
+        Units units = channel.getUnits();
+        if (units != null) {
+            forecast.setDistanceUnits(units.getDistance());
+            forecast.setPressureUnits(units.getPressure());
+            forecast.setSpeedUnits(units.getSpeed());
+            forecast.setTemperatureUnits(units.getTemperature());
+        }
 
         //Wind
-        if (!Strings.isNullOrEmpty(channel.getWind().getChill())){
-            ValidationUtils.checkFieldOnNotLong(channel.getWind().getChill(), "chill_wind");
-            forecast.setChillWind(Long.parseLong(channel.getWind().getChill()));
-        }
+        Wind wind = channel.getWind();
+        if (wind != null) {
+            if (!Strings.isNullOrEmpty(wind.getChill())) {
+                ValidationUtils.checkFieldOnNotLong(wind.getChill(), "chill_wind");
+                forecast.setChillWind(Long.parseLong(wind.getChill()));
+            }
 
-        if (!Strings.isNullOrEmpty(channel.getWind().getDirection())){
-            ValidationUtils.checkFieldOnNotLong(channel.getWind().getDirection(), "direction_wind");
-            forecast.setDirectionWind(Long.parseLong(channel.getWind().getDirection()));
-        }
+            if (!Strings.isNullOrEmpty(wind.getDirection())) {
+                ValidationUtils.checkFieldOnNotLong(wind.getDirection(), "direction_wind");
+                forecast.setDirectionWind(Long.parseLong(wind.getDirection()));
+            }
 
-        if (!Strings.isNullOrEmpty(channel.getWind().getSpeed())){
-            ValidationUtils.checkFieldOnNotDouble(channel.getWind().getSpeed(), "speed_wind");
-            forecast.setSpeedWind(Double.parseDouble(channel.getWind().getSpeed()));
+            if (!Strings.isNullOrEmpty(wind.getSpeed())) {
+                ValidationUtils.checkFieldOnNotDouble(wind.getSpeed(), "speed_wind");
+                forecast.setSpeedWind(Double.parseDouble(wind.getSpeed()));
+            }
         }
 
         //Atmosphere
-        if (!Strings.isNullOrEmpty(channel.getAtmosphere().getHumidity())){
-            ValidationUtils.checkFieldOnNotLong(channel.getAtmosphere().getHumidity(), "humidity_atmosphere");
-            forecast.setHumidityAtmosphere(Long.parseLong(channel.getAtmosphere().getHumidity()));
-        }
+        Atmosphere atmosphere = channel.getAtmosphere();
+        if (atmosphere != null) {
+            if (!Strings.isNullOrEmpty(atmosphere.getHumidity())) {
+                ValidationUtils.checkFieldOnNotLong(atmosphere.getHumidity(), "humidity_atmosphere");
+                forecast.setHumidityAtmosphere(Long.parseLong(atmosphere.getHumidity()));
+            }
 
-        if (!Strings.isNullOrEmpty(channel.getAtmosphere().getPressure())){
-            ValidationUtils.checkFieldOnNotDouble(channel.getAtmosphere().getPressure(), "pressure_atmosphere");
-            forecast.setPressureAtmosphere(Double.parseDouble(channel.getAtmosphere().getPressure()));
-        }
+            if (!Strings.isNullOrEmpty(atmosphere.getPressure())) {
+                ValidationUtils.checkFieldOnNotDouble(atmosphere.getPressure(), "pressure_atmosphere");
+                forecast.setPressureAtmosphere(Double.parseDouble(atmosphere.getPressure()));
+            }
 
-        if (!Strings.isNullOrEmpty(channel.getAtmosphere().getRising())){
-            ValidationUtils.checkFieldOnNotLong(channel.getAtmosphere().getRising(), "rising_atmosphere");
-            forecast.setRisingAtmosphere(Long.parseLong(channel.getAtmosphere().getRising()));
-        }
+            if (!Strings.isNullOrEmpty(atmosphere.getRising())) {
+                ValidationUtils.checkFieldOnNotLong(atmosphere.getRising(), "rising_atmosphere");
+                forecast.setRisingAtmosphere(Long.parseLong(atmosphere.getRising()));
+            }
 
-        if (!Strings.isNullOrEmpty(channel.getAtmosphere().getVisibility())){
-            ValidationUtils.checkFieldOnNotDouble(channel.getAtmosphere().getVisibility(), "visibility_atmosphere");
-            forecast.setVisibilityAtmosphere(Double.parseDouble(channel.getAtmosphere().getVisibility()));
+            if (!Strings.isNullOrEmpty(atmosphere.getVisibility())) {
+                ValidationUtils.checkFieldOnNotDouble(atmosphere.getVisibility(), "visibility_atmosphere");
+                forecast.setVisibilityAtmosphere(Double.parseDouble(atmosphere.getVisibility()));
+            }
         }
 
         //Astronomy
-        forecast.setSunriseAstronomy(channel.getAstronomy().getSunrise());
-        forecast.setSunsetAstronomy(channel.getAstronomy().getSunset());
-
-        //Condition
-        forecast.setDateCondition(channel.getItem().getCondition().getDate());
-
-        if (!Strings.isNullOrEmpty(channel.getItem().getCondition().getTemp())){
-            ValidationUtils.checkFieldOnNotLong(channel.getItem().getCondition().getTemp(), "temperature_condition");
-            forecast.setTempCondition(Long.parseLong(channel.getItem().getCondition().getTemp()));
+        Astronomy astronomy = channel.getAstronomy();
+        if (astronomy != null) {
+            forecast.setSunriseAstronomy(astronomy.getSunrise());
+            forecast.setSunsetAstronomy(astronomy.getSunset());
         }
 
-        forecast.setTextCondition(channel.getItem().getCondition().getText());
+        Item item = channel.getItem();
+        if (item != null) {
+            //Condition
+            Condition condition = item.getCondition();
 
-        //ForecastEntity
-        List<Forecast> forecastList = channel.getItem().getForecasts();
-        if ((forecastList != null) && (!forecastList.isEmpty())) {
+            forecast.setDateCondition(condition.getDate());
 
-            forecast.setDateForecast(forecastList.get(0).getDate());
-
-            forecast.setDayForecast(forecastList.get(0).getDay());
-
-            if (!Strings.isNullOrEmpty(forecastList.get(0).getHigh())) {
-                ValidationUtils.checkFieldOnNotLong(forecastList.get(0).getHigh(), "high_forecast");
-                forecast.setHighForecast(Long.parseLong(forecastList.get(0).getHigh()));
+            if (!Strings.isNullOrEmpty(condition.getTemp())) {
+                ValidationUtils.checkFieldOnNotLong(condition.getTemp(), "temperature_condition");
+                forecast.setTempCondition(Long.parseLong(condition.getTemp()));
             }
 
-            if (!Strings.isNullOrEmpty(forecastList.get(0).getLow())) {
-                ValidationUtils.checkFieldOnNotLong(forecastList.get(0).getLow(), "low_forecast");
-                forecast.setLowForecast(Long.parseLong(forecastList.get(0).getLow()));
-            }
+            forecast.setTextCondition(condition.getText());
 
-            forecast.setTextForecast(forecastList.get(0).getText());
+            //ForecastEntity
+            List<Forecast> forecastList = item.getForecasts();
+            if ((forecastList != null) && (!forecastList.isEmpty())) {
+
+                forecast.setDateForecast(forecastList.get(0).getDate());
+
+                forecast.setDayForecast(forecastList.get(0).getDay());
+
+                if (!Strings.isNullOrEmpty(forecastList.get(0).getHigh())) {
+                    ValidationUtils.checkFieldOnNotLong(forecastList.get(0).getHigh(), "high_forecast");
+                    forecast.setHighForecast(Long.parseLong(forecastList.get(0).getHigh()));
+                }
+
+                if (!Strings.isNullOrEmpty(forecastList.get(0).getLow())) {
+                    ValidationUtils.checkFieldOnNotLong(forecastList.get(0).getLow(), "low_forecast");
+                    forecast.setLowForecast(Long.parseLong(forecastList.get(0).getLow()));
+                }
+
+                forecast.setTextForecast(forecastList.get(0).getText());
+            }
         }
 
         forecastDAO.save(forecast);
